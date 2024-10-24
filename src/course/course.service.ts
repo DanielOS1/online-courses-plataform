@@ -5,13 +5,15 @@ import { Course, CourseDocument } from './schema/course.schema';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UnitService } from '../unit/unit.service';
 import { UpdateCourseDto } from './dto/update-course.dto';
-import { AddUnitDto } from './dto/add-unit.dto';
+import { UsersService } from 'src/users/users.service';
 
 @Injectable()
 export class CourseService {
-  constructor(@InjectModel(Course.name) private courseModel: Model<CourseDocument>,
-  private readonly unitService: UnitService,)
-   {}
+  constructor(
+    @InjectModel(Course.name) private courseModel: Model<CourseDocument>,
+    private readonly unitService: UnitService,
+    private readonly userService: UsersService, 
+  ) {}
 
   async create(createCourseDto: CreateCourseDto): Promise<Course> {
     const newCourse = new this.courseModel(createCourseDto);
@@ -46,12 +48,8 @@ export class CourseService {
     return deletedCourse;
   }
 
-  
-  async addUnitToCourse(courseId: string, addUnitDto: AddUnitDto): Promise<Course> {
-    // Verificar que la unidad existe
-    const unit = await this.unitService.findOne(addUnitDto.unitId);
-    
-    // Buscar y actualizar el curso
+  async addUnitToCourse(courseId: string, unitId: string): Promise<Course> {
+    const unit = await this.unitService.findOne(unitId);
     const course = await this.courseModel
       .findByIdAndUpdate(
         courseId,
@@ -59,6 +57,24 @@ export class CourseService {
         { new: true }
       )
       .populate('units')
+      .exec();
+
+    if (!course) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    return course;
+  }
+
+  async addStudentToCourse(courseId: string, studentId: string): Promise<Course> {
+    const student = await this.userService.findOneById(studentId); 
+    const course = await this.courseModel
+      .findByIdAndUpdate(
+        courseId,
+        { $push: { enrolledStudents: student._id } },
+        { new: true }
+      )
+      .populate('enrolledStudents')
       .exec();
 
     if (!course) {

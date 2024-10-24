@@ -5,6 +5,10 @@ export type UserDocument = User & Document;
 
 @Schema()
 export class User {
+
+  @Prop({ type: MongooseSchema.Types.ObjectId, auto: true })
+  _id: MongooseSchema.Types.ObjectId;
+  
   @Prop({ required: true })
   username: string;
 

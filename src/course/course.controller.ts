@@ -35,4 +35,17 @@ export class CourseController {
   async deleteCourse(@Param('id') id: string) {
     return this.coursesService.remove(id);
   }
+
+  @Post(':id/units')  
+  async addUnitToCourse(
+    @Param('id') courseId: string,
+    @Body('unitId') unitId: string, 
+  ) {
+    return this.coursesService.addUnitToCourse(courseId, unitId);
+  }
+
+  @Post(':id/student')
+  async addStudentToCourse(@Param('id') courseId: string, @Body('studentId') studentId: string,){
+    return this.coursesService.addStudentToCourse(courseId,studentId);
+  }
 }

@@ -10,6 +10,6 @@ import { Unit, UnitSchema } from './schema/unit.schema';
   ],
   controllers: [UnitController],
   providers: [UnitService],
-  exports: [UnitService]
+  exports: [UnitService, MongooseModule]
 })
 export class UnitModule {}
