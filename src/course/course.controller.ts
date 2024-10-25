@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Param, Put, Delete } from '@nestjs/common'
 import { CourseService } from './course.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UpdateCourseDto } from './dto/update-course.dto';
+import { AssignInstructorDto } from './dto/assign-instructor.dto';
 
 @Controller('courses')
 export class CourseController {
@@ -47,5 +48,16 @@ export class CourseController {
   @Post(':id/student')
   async addStudentToCourse(@Param('id') courseId: string, @Body('studentId') studentId: string,){
     return this.coursesService.addStudentToCourse(courseId,studentId);
+  }
+
+  @Put(':courseId/instructor')
+  async assignInstructor(
+    @Param('courseId') courseId: string,
+    @Body() assignInstructorDto: AssignInstructorDto
+  ) {
+    return this.coursesService.addInstructorToCourse(
+      courseId,
+      assignInstructorDto.instructorId
+    );
   }
 }

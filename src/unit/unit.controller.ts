@@ -31,4 +31,11 @@ export class UnitController {
   remove(@Param('id') id: string) {
     return this.unitService.remove(id);
   }
+
+
+  @Post(':unitId/classes/:classId')
+  async addClass(@Param('unitId') unitId: string, @Param('classId') classId: string) {
+    return this.unitService.addClassToUnit(unitId, classId);
+  }
+
 }

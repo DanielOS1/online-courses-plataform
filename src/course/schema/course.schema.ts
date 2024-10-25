@@ -8,6 +8,9 @@ export type CourseDocument = Course & Document;
 
 @Schema()
 export class Course {
+  @Prop({ type: MongooseSchema.Types.ObjectId, auto: true })
+  _id: MongooseSchema.Types.ObjectId;
+
   @Prop({ required: true, unique: true })
   name: string;
 

@@ -6,11 +6,14 @@ import { Course, CourseSchema } from './schema/course.schema';
 import { UnitService } from 'src/unit/unit.service';
 import { UnitModule } from 'src/unit/unit.module';
 import { UsersModule } from 'src/users/users.module';
+import { ClassModule } from 'src/class/class.module';
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Course.name, schema: CourseSchema }]), 
     UnitModule,
     UsersModule,
+    ClassModule,
   ],
   controllers: [CourseController],
   providers: [CourseService],

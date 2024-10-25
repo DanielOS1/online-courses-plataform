@@ -1,11 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Course, CourseDocument } from './schema/course.schema';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { UnitService } from '../unit/unit.service';
 import { UpdateCourseDto } from './dto/update-course.dto';
 import { UsersService } from 'src/users/users.service';
+import { ClassService } from 'src/class/class.service';
 
 @Injectable()
 export class CourseService {
@@ -21,11 +22,28 @@ export class CourseService {
   }
 
   async findAll(): Promise<Course[]> {
-    return this.courseModel.find().populate('instructor enrolledStudents').exec(); // Traemos las referencias
+    return this.courseModel
+      .find()
+      .populate('instructor enrolledStudents')
+      .populate({
+        path: 'units',
+        select: 'name order description',  
+        options: { sort: { order: 1 } }    
+      })
+      .exec(); 
   }
 
   async findOneById(id: string): Promise<Course> {
-    const course = await this.courseModel.findById(id).populate('instructor enrolledStudents').exec();
+    const course = await this.courseModel
+      .findById(id)
+      .populate('instructor enrolledStudents')
+      .populate({
+        path: 'units',
+        select: 'name order description',
+        options: { sort: { order: 1 } }
+      })
+      .exec();
+      
     if (!course) {
       throw new NotFoundException(`Curso con id ${id} no encontrado.`);
     }
@@ -50,19 +68,29 @@ export class CourseService {
 
   async addUnitToCourse(courseId: string, unitId: string): Promise<Course> {
     const unit = await this.unitService.findOne(unitId);
+    
     const course = await this.courseModel
       .findByIdAndUpdate(
         courseId,
         { $push: { units: unit._id } },
         { new: true }
       )
-      .populate('units')
+      .populate(['instructor', 'enrolledStudents'])
+      .populate({
+        path: 'units',
+        select: 'name order description',
+        options: { sort: { order: 1 } }
+      })
       .exec();
-
+  
     if (!course) {
       throw new NotFoundException(`Course with ID ${courseId} not found`);
     }
-
+  
+    await this.unitService.update(unitId, {
+      course: course._id as any
+    });
+  
     return course;
   }
 
@@ -75,6 +103,11 @@ export class CourseService {
         { new: true }
       )
       .populate('enrolledStudents')
+      .populate({
+        path: 'units',
+        select: 'name order description',
+        options: { sort: { order: 1 } }
+      })
       .exec();
 
     if (!course) {
@@ -83,4 +116,32 @@ export class CourseService {
 
     return course;
   }
+
+  async addInstructorToCourse(courseId: string, instructorId: string): Promise<Course> {
+
+    const instructor = await this.userService.findOneById(instructorId);
+
+    const course = await this.courseModel
+      .findByIdAndUpdate(
+        courseId,
+        { instructor: instructor._id },
+        { new: true }
+      )
+      .populate('instructor')
+      .populate('enrolledStudents')
+      .populate({
+        path: 'units',
+        select: 'name order description',
+        options: { sort: { order: 1 } }
+      })
+      .exec();
+
+    if (!course) {
+      throw new NotFoundException(`Course with ID ${courseId} not found`);
+    }
+
+    return course;
+  }
+
+
 }

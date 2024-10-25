@@ -5,13 +5,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { UsersModule } from './users/users.module';
 import { CourseModule } from './course/course.module';
 import { UnitModule } from './unit/unit.module';
-import { ClassService } from './class/class.service';
-import { ClassController } from './class/class.controller';
 import { ClassModule } from './class/class.module';
-import { RatingController } from './rating/rating.controller';
-import { RatingService } from './rating/rating.service';
 import { RatingModule } from './rating/rating.module';
-
 
 @Module({
   imports: [
@@ -21,9 +16,8 @@ import { RatingModule } from './rating/rating.module';
     UnitModule,
     ClassModule,
     RatingModule,
-
   ],
-  controllers: [AppController, ClassController, RatingController],
-  providers: [AppService, ClassService, RatingService],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
