@@ -7,6 +7,7 @@ import { CourseModule } from './course/course.module';
 import { UnitModule } from './unit/unit.module';
 import { ClassModule } from './class/class.module';
 import { RatingModule } from './rating/rating.module';
+import { CommentsModule } from './comments/comments.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { RatingModule } from './rating/rating.module';
     UnitModule,
     ClassModule,
     RatingModule,
+    CommentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
