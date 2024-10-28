@@ -35,11 +35,11 @@ export class Course {
   @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Unit' }] })
   units: Unit[];
 
-  // Nuevo campo para almacenar valoraciones de los usuarios
-  @Prop({ type: [Number], default: [] }) // Almacena las valoraciones como un array de números
+ 
+  @Prop({ type: [Number], default: [] }) 
   ratings: number[];
 
-  // Nuevo campo para almacenar IDs de usuarios que ya han valorado el curso
+ 
   @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'User' }] })
   ratedBy: User[];
 

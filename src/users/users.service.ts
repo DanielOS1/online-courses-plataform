@@ -19,12 +19,12 @@ export class UsersService {
           throw new ConflictException('El correo electrónico ya está registrado.');
       }
   
-      // Hashear la contraseña
+    
       const hashedPassword = await bcrypt.hash(password, 10);
   
       const newUser = new this.userModel({
           ...createUserDto,
-          password: hashedPassword  // Guarda la contraseña hasheada
+          password: hashedPassword  
       });
       return newUser.save();
   }
@@ -113,7 +113,6 @@ export class UsersService {
           enrolledCourses: [],
         });
     
-        // Guardar el nuevo usuario en la base de datos
         return newUser.save();
       }      
     
