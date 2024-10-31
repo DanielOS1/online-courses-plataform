@@ -1,0 +1,29 @@
+# Ignorar node_modules y las dependencias instaladas
+node_modules
+dist
+# Ignorar archivos de configuración específicos del entorno
+.env
+.env.local
+.env.*.local
+
+# Ignorar archivos de configuración de Git
+.git
+.gitignore
+
+# Ignorar Dockerfile y el archivo docker-compose (no necesarios dentro de la imagen)
+Dockerfile
+docker-compose.yml
+
+# Ignorar logs y archivos temporales
+*.log
+logs
+temp
+*.tmp
+*.swp
+
+# Ignorar otros archivos y carpetas innecesarios
+.vscode
+.idea
+npm-debug.log
+yarn-debug.log
+yarn-error.log
