@@ -88,7 +88,7 @@ export class UsersService {
       }
 
       async registerUser(createUserDto: CreateUserDto): Promise<User> {
-        const { email, password, username  } = createUserDto;
+        const { email, password, username, role  } = createUserDto;
     
 
         const existingUser = await this.userModel.findOne({ email }).exec();
@@ -109,6 +109,7 @@ export class UsersService {
         const newUser = new this.userModel({
           email,
           username,
+          role,
           password: hashedPassword,
           enrolledCourses: [],
         });

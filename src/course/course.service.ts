@@ -121,10 +121,14 @@ export class CourseService {
 
     const instructor = await this.userService.findOneById(instructorId);
 
+    if (!instructor) {
+      throw new NotFoundException(`Instructor with ID ${instructorId} not found`);
+    }
+
     const course = await this.courseModel
       .findByIdAndUpdate(
         courseId,
-        { instructor: instructor._id },
+        { instructor },
         { new: true }
       )
       .populate('instructor')
