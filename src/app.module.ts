@@ -9,10 +9,14 @@ import { UnitModule } from './unit/unit.module';
 import { ClassModule } from './class/class.module';
 import { RatingModule } from './rating/rating.module';
 import { CommentsModule } from './comments/comments.module';
+import { RedisModule } from './redis/redis.module';
+import { Neo4jModule } from './neo4j/neo4j.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     MongooseModule.forRoot(process.env.MONGODB_URI),
     UsersModule,
     CourseModule,
@@ -20,6 +24,8 @@ import { CommentsModule } from './comments/comments.module';
     ClassModule,
     RatingModule,
     CommentsModule,
+    RedisModule,
+    Neo4jModule,
   ],
   controllers: [AppController],
   providers: [AppService],
