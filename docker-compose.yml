@@ -4,11 +4,32 @@ services:
     container_name: mongodb
     ports:
       - '27017:27017'
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
+    env_file:
+      - mongodb.env
     volumes:
       - mongo-data:/data/db
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    ports:
+      - '6379:6379'
+    env_file:
+      - redis.env
+    volumes:
+      - redis-data:/data
+
+  neo4j:
+    image: neo4j:5.9.0
+    container_name: neo4j
+    ports:
+      - '7474:7474'  # HTTP
+      - '7687:7687'  # Bolt
+    env_file:
+      - neo4j.env
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
 
   backend:
     build:
@@ -17,11 +38,19 @@ services:
     container_name: backend
     ports:
       - '3000:3000'
-    environment:
-        MONGODB_URI: mongodb://root:example@mongodb:27017/online-courses-platform?authSource=admin
+    env_file:
+      - backend.env
     depends_on:
       - mongodb
+      - redis
+      - neo4j
 
 volumes:
   mongo-data:
+    driver: local
+  redis-data:
+    driver: local
+  neo4j-data:
+    driver: local
+  neo4j-logs:
     driver: local
