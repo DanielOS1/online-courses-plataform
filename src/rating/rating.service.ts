@@ -1,110 +1,258 @@
 // src/rating/rating.service.ts
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Rating, RatingDocument } from './schema/rating.schema';
-import { Course, CourseDocument } from '../course/schema/course.schema';
-import { CreateRatingDto } from './dto/create-rating.dto';
-import { UpdateRatingDto } from './dto/update-rating.dto';
+import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Driver, Session } from 'neo4j-driver';
+import { RatingResponse, CourseRatingStats } from './interfaces/rating.interface';
 
 @Injectable()
 export class RatingService {
   constructor(
-    @InjectModel(Rating.name) private ratingModel: Model<RatingDocument>,
-    @InjectModel(Course.name) private courseModel: Model<CourseDocument>,
+    @Inject('NEO4J_DRIVER') private readonly neo4j: Driver,
   ) {}
 
-  async create(createRatingDto: CreateRatingDto): Promise<Rating> {
-    // Verificar si el usuario ya ha valorado este curso
-    const existingRating = await this.ratingModel.findOne({
-      userId: createRatingDto.userId,
-      courseId: createRatingDto.courseId,
-    });
-
-    if (existingRating) {
-      throw new BadRequestException('El usuario ya ha valorado este curso');
-    }
-
-    // Verificar si el curso existe
-    const courseExists = await this.courseModel.findById(createRatingDto.courseId);
-    if (!courseExists) {
-      throw new NotFoundException('Curso no encontrado');
-    }
-
-    // Crear la nueva valoración
-    const newRating = new this.ratingModel(createRatingDto);
-
-    // Guardar la valoración
-    const savedRating = await newRating.save();
-
-    // Actualizar el promedio en el curso
-    await this.updateCourseAverageRating(createRatingDto.courseId);
-
-    return savedRating;
+  private getSession(): Session {
+    return this.neo4j.session();
   }
 
-  async findAll(): Promise<Rating[]> {
-    return this.ratingModel.find().populate('userId').populate('courseId');
-  }
+  async create(courseId: string, userId: string, rating: number): Promise<RatingResponse> {
+    const session = this.getSession();
 
-  async findOne(id: string): Promise<Rating> {
-    const rating = await this.ratingModel.findById(id).populate('userId').populate('courseId');
-    if (!rating) {
-      throw new NotFoundException('Valoración no encontrada');
+    try {
+      // Verificar si el usuario ya ha valorado este curso
+      const existingRating = await session.run(`
+        MATCH (u:User {_id: $userId})-[r:RATED]->(c:Course {_id: $courseId})
+        RETURN r
+      `, {
+        userId: userId,
+        courseId: courseId
+      });
+
+      if (existingRating.records.length > 0) {
+        throw new BadRequestException('El usuario ya ha valorado este curso');
+      }
+
+      // Verificar si el curso existe
+      const courseExists = await session.run(`
+        MATCH (c:Course {_id: $courseId})
+        RETURN c
+      `, {
+        courseId: courseId
+      });
+
+      if (courseExists.records.length === 0) {
+        throw new NotFoundException('Curso no encontrado');
+      }
+
+      // Crear la relación de rating
+      const result = await session.run(`
+        MATCH (u:User {_id: $userId})
+        MATCH (c:Course {_id: $courseId})
+        CREATE (u)-[r:RATED {
+          rating: $rating,
+          createdAt: datetime(),
+          updatedAt: datetime()
+        }]->(c)
+        RETURN r, u, c
+      `, {
+        userId: userId,
+        courseId: courseId,
+        rating: rating
+      });
+
+      const record = result.records[0];
+      const relationship = record.get('r').properties;
+
+      // Actualizar estadísticas del curso
+      await this.updateCourseAverageRating(courseId, session);
+
+      return {
+        userId: userId,
+        courseId: courseId,
+        rating: relationship.rating,
+        createdAt: new Date(relationship.createdAt),
+        updatedAt: new Date(relationship.updatedAt)
+      };
+    } finally {
+      await session.close();
     }
-    return rating;
   }
 
-  async update(id: string, updateRatingDto: UpdateRatingDto): Promise<Rating> {
-    const rating = await this.ratingModel.findById(id);
+  async findAll(): Promise<RatingResponse[]> {
+    const session = this.getSession();
+
+    try {
+      const result = await session.run(`
+        MATCH (u:User)-[r:RATED]->(c:Course)
+        RETURN u._id as userId, c._id as courseId, r.rating as rating, 
+               r.createdAt as createdAt, r.updatedAt as updatedAt
+      `);
+
+      return result.records.map(record => ({
+        userId: record.get('userId'),
+        courseId: record.get('courseId'),
+        rating: record.get('rating').toNumber(),
+        createdAt: new Date(record.get('createdAt')),
+        updatedAt: new Date(record.get('updatedAt'))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async findOne(userId: string, courseId: string): Promise<RatingResponse> {
+    const session = this.getSession();
     
-    if (!rating) {
-      throw new NotFoundException('Valoración no encontrada');
+    try {
+      const result = await session.run(`
+        MATCH (u:User {_id: $userId})-[r:RATED]->(c:Course {_id: $courseId})
+        RETURN u._id as userId, c._id as courseId, r.rating as rating,
+               r.createdAt as createdAt, r.updatedAt as updatedAt
+      `, { userId, courseId });
+
+      if (result.records.length === 0) {
+        throw new NotFoundException('Valoración no encontrada');
+      }
+
+      const record = result.records[0];
+      return {
+        userId: record.get('userId'),
+        courseId: record.get('courseId'),
+        rating: record.get('rating').toNumber(),
+        createdAt: new Date(record.get('createdAt')),
+        updatedAt: new Date(record.get('updatedAt'))
+      };
+    } finally {
+      await session.close();
     }
-
-    if (rating.userId.toString() !== updateRatingDto.userId) {
-      throw new BadRequestException('No tienes permiso para modificar esta valoración');
-    }
-
-    const updatedRating = await this.ratingModel.findByIdAndUpdate(
-      id,
-      { rating: updateRatingDto.rating, updatedAt: new Date() },
-      { new: true },
-    );
-
-    await this.updateCourseAverageRating(rating.courseId.toString());
-
-    return updatedRating;
   }
 
-  async remove(id: string, userId: string): Promise<void> {
-    const rating = await this.ratingModel.findById(id);
+  async update(userId: string, courseId: string, rating: number): Promise<RatingResponse> {
+    const session = this.getSession();
     
-    if (!rating) {
-      throw new NotFoundException('Valoración no encontrada');
-    }
+    try {
+      const result = await session.run(`
+        MATCH (u:User {_id: $userId})-[r:RATED]->(c:Course {_id: $courseId})
+        SET r.rating = $rating,
+            r.updatedAt = datetime()
+        RETURN u._id as userId, c._id as courseId, r.rating as rating,
+               r.createdAt as createdAt, r.updatedAt as updatedAt
+      `, {
+        userId,
+        courseId,
+        rating
+      });
 
-    if (rating.userId.toString() !== userId) {
-      throw new BadRequestException('No tienes permiso para eliminar esta valoración');
-    }
+      if (result.records.length === 0) {
+        throw new NotFoundException('Valoración no encontrada');
+      }
 
-    await this.ratingModel.findByIdAndDelete(id);
-    await this.updateCourseAverageRating(rating.courseId.toString());
+      // Actualizar estadísticas del curso
+      await this.updateCourseAverageRating(courseId, session);
+
+      const record = result.records[0];
+      return {
+        userId: record.get('userId'),
+        courseId: record.get('courseId'),
+        rating: record.get('rating').toNumber(),
+        createdAt: new Date(record.get('createdAt')),
+        updatedAt: new Date(record.get('updatedAt'))
+      };
+    } finally {
+      await session.close();
+    }
   }
 
-  private async updateCourseAverageRating(courseId: string): Promise<void> {
-    const ratings = await this.ratingModel.find({ courseId });
-    const average = ratings.reduce((acc, curr) => acc + curr.rating, 0) / ratings.length;
+  async remove(userId: string, courseId: string): Promise<void> {
+    const session = this.getSession();
+    
+    try {
+      const result = await session.run(`
+        MATCH (u:User {_id: $userId})-[r:RATED]->(c:Course {_id: $courseId})
+        DELETE r
+        RETURN count(r) as deletedCount
+      `, { userId, courseId });
 
-    await this.courseModel.findByIdAndUpdate(courseId, {
-      averageRating: average || 0,
-      ratings: ratings.map(r => r.rating),
-      ratedBy: ratings.map(r => r.userId),
-    });
+      if (result.records[0].get('deletedCount').toNumber() === 0) {
+        throw new NotFoundException('Valoración no encontrada');
+      }
+
+      // Actualizar estadísticas del curso
+      await this.updateCourseAverageRating(courseId, session);
+    } finally {
+      await session.close();
+    }
   }
 
-  // Método adicional para obtener las valoraciones de un curso específico
-  async findByCourse(courseId: string): Promise<Rating[]> {
-    return this.ratingModel.find({ courseId }).populate('userId');
+  async findByCourse(courseId: string): Promise<RatingResponse[]> {
+    const session = this.getSession();
+    
+    try {
+      const result = await session.run(`
+        MATCH (u:User)-[r:RATED]->(c:Course {_id: $courseId})
+        RETURN u._id as userId, c._id as courseId, r.rating as rating,
+               r.createdAt as createdAt, r.updatedAt as updatedAt
+        ORDER BY r.createdAt DESC
+      `, { courseId });
+
+      return result.records.map(record => ({
+        userId: record.get('userId'),
+        courseId: record.get('courseId'),
+        rating: record.get('rating').toNumber(),
+        createdAt: new Date(record.get('createdAt')),
+        updatedAt: new Date(record.get('updatedAt'))
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  private async updateCourseAverageRating(courseId: string, session: Session): Promise<void> {
+    const result = await session.run(`
+      MATCH (c:Course {_id: $courseId})<-[r:RATED]-(u:User)
+      WITH c, 
+           avg(r.rating) as avgRating,
+           count(r) as totalRatings,
+           collect(r.rating) as ratingsList,
+           collect(u._id) as usersList
+      SET c.averageRating = avgRating,
+          c.totalRatings = totalRatings,
+          c.ratings = ratingsList,
+          c.ratedBy = usersList
+      RETURN c
+    `, { courseId });
+  }
+
+  async getCourseRatingStats(courseId: string): Promise<CourseRatingStats> {
+    const session = this.getSession();
+    
+    try {
+      const result = await session.run(`
+        MATCH (c:Course {_id: $courseId})<-[r:RATED]-(u:User)
+        WITH c, 
+             avg(r.rating) as avgRating,
+             count(r) as totalRatings,
+             collect(r.rating) as ratingsList,
+             collect(u._id) as usersList
+        RETURN avgRating, totalRatings, ratingsList, usersList
+      `, { courseId });
+
+      if (result.records.length === 0) {
+        return {
+          averageRating: 0,
+          totalRatings: 0,
+          ratings: [],
+          ratedBy: []
+        };
+      }
+
+      const record = result.records[0];
+      return {
+        averageRating: record.get('avgRating'),
+        totalRatings: record.get('totalRatings').toNumber(),
+        ratings: record.get('ratingsList').map(r => r.toNumber()),
+        ratedBy: record.get('usersList')
+      };
+    } finally {
+      await session.close();
+    }
   }
 }
