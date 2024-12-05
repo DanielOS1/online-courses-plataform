@@ -48,7 +48,8 @@ export class UsersService {
       _id: userId.toString(),
       ...createUserDto,
       password: hashedPassword,
-      enrolledCourses: []
+      enrolledCourses: [],
+      instructorCourses: []
     };
 
     const multi = this.redisClient.multi();
@@ -67,7 +68,7 @@ export class UsersService {
       const userData = await this.redisClient.get(key);
       if (userData) {
         const user = JSON.parse(userData);
-        delete user.password; // No enviar contraseñas
+        delete user.password;
         users.push(user);
       }
     }
@@ -171,7 +172,8 @@ export class UsersService {
       username,
       role,
       password: hashedPassword,
-      enrolledCourses: []
+      enrolledCourses: [],
+      instructorCourses: []
     };
 
     const multi = this.redisClient.multi();
@@ -195,5 +197,61 @@ export class UsersService {
     multi.del(`user:id:${id}`);
     
     await multi.exec();
+  }
+
+  async addCourseToUser(userId: string, courseId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.enrolledCourses) {
+      user.enrolledCourses = [];
+    }
+
+    if (!user.enrolledCourses.includes(courseId)) {
+      user.enrolledCourses.push(courseId);
+      await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+    }
+  }
+
+  async removeCourseFromUser(userId: string, courseId: string): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (user.enrolledCourses) {
+      user.enrolledCourses = user.enrolledCourses.filter(id => id !== courseId);
+      await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+    }
+  }
+
+  async addInstructorCourse(instructorId: string, courseId: string): Promise<void> {
+    const user = await this.getUserById(instructorId);
+    if (!user) {
+      throw new NotFoundException('Instructor no encontrado');
+    }
+
+    if (!user.instructorCourses) {
+      user.instructorCourses = [];
+    }
+
+    if (!user.instructorCourses.includes(courseId)) {
+      user.instructorCourses.push(courseId);
+      await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+    }
+  }
+
+  async removeInstructorCourse(instructorId: string, courseId: string): Promise<void> {
+    const user = await this.getUserById(instructorId);
+    if (!user) {
+      throw new NotFoundException('Instructor no encontrado');
+    }
+
+    if (user.instructorCourses) {
+      user.instructorCourses = user.instructorCourses.filter(id => id !== courseId);
+      await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+    }
   }
 }

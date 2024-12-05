@@ -1,8 +1,13 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
-import { User } from 'src/users/schema/user.schema';
 import { Unit } from 'src/unit/schema/unit.schema';
-import { Comment } from 'src/comments/schema/comment.schema'; 
+import { Comment } from 'src/comments/schema/comment.schema';
+
+export interface UserReference {
+  _id: string;
+  email: string;
+  username: string;
+}
 
 export type CourseDocument = Course & Document;
 
@@ -24,28 +29,43 @@ export class Course {
   thumbnailImage: string;
 
   @Prop({ default: 0 })
-  averageRating: number; 
+  averageRating: number;
 
-  @Prop({ type: MongooseSchema.Types.ObjectId, ref: 'User' })
-  instructor: User;
+  @Prop({
+    type: {
+      _id: String,
+      email: String,
+      username: String
+    }
+  })
+  instructor: UserReference;
 
-  @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'User' }] })
-  enrolledStudents: User[];
+  @Prop({
+    type: [{
+      _id: String,
+      email: String,
+      username: String
+    }]
+  })
+  enrolledStudents: UserReference[];
 
   @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Unit' }] })
   units: Unit[];
 
- 
-  @Prop({ type: [Number], default: [] }) 
+  @Prop({ type: [Number], default: [] })
   ratings: number[];
 
- 
-  @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'User' }] })
-  ratedBy: User[];
+  @Prop({
+    type: [{
+      _id: String,
+      email: String,
+      username: String
+    }]
+  })
+  ratedBy: UserReference[];
 
   @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Comment' }] })
-  comments: Comment[]; 
-
+  comments: Comment[];
 
   @Prop({ default: Date.now })
   createdAt: Date;
