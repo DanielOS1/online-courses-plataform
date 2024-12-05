@@ -1,120 +1,199 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { InjectModel } from '@nestjs/mongoose';
-import { UserDocument } from './schema/user.schema';
-import { Model } from 'mongoose';
-import { User, UserSchema } from './schema/user.schema';
+import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
-import * as bcrypt from 'bcrypt'
 import { UpdateUserDto } from './dto/update-user.dto';
+import { Redis } from 'ioredis';
+import * as bcrypt from 'bcrypt';
+import { User } from './../redis/interfaces/user.interface';
 
 @Injectable()
 export class UsersService {
-    constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    @Inject('REDIS_CLIENT')
+    private readonly redisClient: Redis,
+  ) {}
 
-    async createUser(createUserDto: CreateUserDto): Promise<User> { 
-      const {email, password} = createUserDto;
-  
-      const existingUser = await this.userModel.findOne({ email }).exec();
+  private async getUserByEmail(email: string): Promise<User | null> {
+    const userData = await this.redisClient.get(`user:email:${email}`);
+    return userData ? JSON.parse(userData) : null;
+  }
+
+  private async getUserByUsername(username: string): Promise<User | null> {
+    const email = await this.redisClient.get(`user:username:${username}`);
+    if (!email) return null;
+    return this.getUserByEmail(email);
+  }
+
+  private async getUserById(id: string): Promise<User | null> {
+    const email = await this.redisClient.get(`user:id:${id}`);
+    if (!email) return null;
+    return this.getUserByEmail(email);
+  }
+
+  private async generateUserId(): Promise<string> {
+    return (await this.redisClient.incr('user:id:counter')).toString();
+  }
+
+  async createUser(createUserDto: CreateUserDto): Promise<User> {
+    const { email, password } = createUserDto;
+
+    const existingUser = await this.getUserByEmail(email);
+    if (existingUser) {
+      throw new ConflictException('El correo electrónico ya está registrado.');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userId = await this.generateUserId();
+
+    const newUser: User = {
+      _id: userId.toString(),
+      ...createUserDto,
+      password: hashedPassword,
+      enrolledCourses: []
+    };
+
+    const multi = this.redisClient.multi();
+    multi.set(`user:email:${email}`, JSON.stringify(newUser));
+    multi.set(`user:id:${userId}`, email);
+
+    await multi.exec();
+    return newUser;
+  }
+
+  async findAll(): Promise<User[]> {
+    const userEmails = await this.redisClient.keys('user:email:*');
+    const users: User[] = [];
+
+    for (const key of userEmails) {
+      const userData = await this.redisClient.get(key);
+      if (userData) {
+        const user = JSON.parse(userData);
+        delete user.password; // No enviar contraseñas
+        users.push(user);
+      }
+    }
+
+    return users;
+  }
+
+  async authenticateUser(email: string, password: string): Promise<User> {
+    const user = await this.getUserByEmail(email);
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    try {
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      
+      if (!passwordMatch) {
+        throw new BadRequestException('Contraseña incorrecta.');
+      }
+
+      return user;
+    } catch (error) {
+      console.error('Error al comparar contraseñas:', error);
+      throw new BadRequestException('Error al verificar la contraseña.');
+    }
+  }
+
+  async updateUser(id: string, updateUserDto: UpdateUserDto): Promise<User> {
+    const user = await this.getUserById(id);
+    
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+
+    const updatedUser = { ...user };
+
+    if (updateUserDto.password) {
+      updatedUser.password = await bcrypt.hash(updateUserDto.password, 10);
+    }
+
+    if (updateUserDto.email && updateUserDto.email !== user.email) {
+      const existingUser = await this.getUserByEmail(updateUserDto.email);
       if (existingUser) {
-          throw new ConflictException('El correo electrónico ya está registrado.');
+        throw new ConflictException('El correo electrónico ya está registrado.');
       }
-  
-    
-      const hashedPassword = await bcrypt.hash(password, 10);
-  
-      const newUser = new this.userModel({
-          ...createUserDto,
-          password: hashedPassword  
-      });
-      return newUser.save();
+      
+      const multi = this.redisClient.multi();
+      multi.del(`user:email:${user.email}`);
+      updatedUser.email = updateUserDto.email;
+    }
+
+    if (updateUserDto.username && updateUserDto.username !== user.username) {
+      const existingUsername = await this.getUserByUsername(updateUserDto.username);
+      if (existingUsername) {
+        throw new ConflictException('El nombre de usuario ya está en uso.');
+      }
+
+      const multi = this.redisClient.multi();
+      multi.del(`user:username:${user.username}`);
+      multi.set(`user:username:${updateUserDto.username}`, updatedUser.email);
+      updatedUser.username = updateUserDto.username;
+    }
+
+    Object.assign(updatedUser, updateUserDto);
+
+    await this.redisClient.set(`user:email:${updatedUser.email}`, JSON.stringify(updatedUser));
+    return updatedUser;
   }
 
-    async findAll(): Promise<User[]> {
-        return this.userModel.find().exec(); 
-      }
-
-    async update () {}
-
-    async delete () {}
-
-    async authenticateUser(email: string, password: string): Promise<User> {
-      const user = await this.userModel.findOne({email}).exec();
-  
-      if(!user) {
-          throw new NotFoundException('Usuario no encontrado');
-      }
-  
-      console.log('Contraseña ingresada:', password);
-      console.log('Contraseña almacenada:', user.password);
-  
+  async findOneById(id: string): Promise<User> {
+    const user = await this.getUserById(id);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
     
-      if (password === user.password) {
-          console.log('Las contraseñas son idénticas en texto plano');
-      }
-  
-      try {
-          const passwordMatch = await bcrypt.compare(password, user.password);
-          console.log('¿Coinciden las contraseñas según bcrypt?', passwordMatch);
-  
-          if(!passwordMatch) {
-              throw new BadRequestException('Contraseña incorrecta.');
-          }
-  
-          return user;
-      } catch (error) {
-          console.error('Error al comparar contraseñas:', error);
-          throw new BadRequestException('Error al verificar la contraseña.');
-      }
+    const userWithoutPassword = { ...user };
+    delete userWithoutPassword.password;
+    return userWithoutPassword;
   }
 
-    async updateUser(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-        const user = await this.findOneById(id);
-    
-        
-        if (updateUserDto.password) {
-          updateUserDto.password = await bcrypt.hash(updateUserDto.password, 10);
-        }
-    
+  async registerUser(createUserDto: CreateUserDto): Promise<User> {
+    const { email, password, username, role } = createUserDto;
 
-        return this.userModel.findByIdAndUpdate(id, updateUserDto, { new: true }).exec();
-      }
-    
-      async findOneById(id: string): Promise<User> {
-        const user = await this.userModel.findById(id).select('-password').exec();
-        if (!user) {
-          throw new NotFoundException('Usuario no encontrado.');
-        }
-        return user;
-      }
+    const existingUser = await this.getUserByEmail(email);
+    if (existingUser) {
+      throw new ConflictException('El correo electrónico ya está registrado.');
+    }
 
-      async registerUser(createUserDto: CreateUserDto): Promise<User> {
-        const { email, password, username, role  } = createUserDto;
-    
+    const existingUsername = await this.getUserByUsername(username);
+    if (existingUsername) {
+      throw new ConflictException('El nombre de usuario ya está en uso.');
+    }
 
-        const existingUser = await this.userModel.findOne({ email }).exec();
-        if (existingUser) {
-          throw new ConflictException('El correo electrónico ya está registrado.');
-        }
-    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const userId = await this.generateUserId();
 
-        const existingUsername = await this.userModel.findOne({ username }).exec();
-        if (existingUsername) {
-          throw new ConflictException('El nombre de usuario ya está en uso.');
-        }
-    
-    
+    const newUser: User = {
+      _id: userId.toString(),
+      email,
+      username,
+      role,
+      password: hashedPassword,
+      enrolledCourses: []
+    };
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+    const multi = this.redisClient.multi();
+    multi.set(`user:email:${email}`, JSON.stringify(newUser));
+    multi.set(`user:username:${username}`, email);
+    multi.set(`user:id:${userId}`, email);
 
-        const newUser = new this.userModel({
-          email,
-          username,
-          role,
-          password: hashedPassword,
-          enrolledCourses: [],
-        });
+    await multi.exec();
+    return newUser;
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const user = await this.getUserById(id);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+
+    const multi = this.redisClient.multi();
+    multi.del(`user:email:${user.email}`);
+    multi.del(`user:username:${user.username}`);
+    multi.del(`user:id:${id}`);
     
-        return newUser.save();
-      }      
-    
+    await multi.exec();
+  }
 }
