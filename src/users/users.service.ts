@@ -4,12 +4,17 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { Redis } from 'ioredis';
 import * as bcrypt from 'bcrypt';
 import { User } from './../redis/interfaces/user.interface';
+import { CourseProgress, CourseStatus } from 'src/redis/interfaces/course-progress.interface';
+import { ClassService } from 'src/class/class.service';
+import { UnitService } from 'src/unit/unit.service';
 
 @Injectable()
 export class UsersService {
   constructor(
     @Inject('REDIS_CLIENT')
     private readonly redisClient: Redis,
+    private readonly classService: ClassService,
+    private readonly unitService: UnitService
   ) {}
 
   private async getUserByEmail(email: string): Promise<User | null> {
@@ -49,7 +54,8 @@ export class UsersService {
       ...createUserDto,
       password: hashedPassword,
       enrolledCourses: [],
-      instructorCourses: []
+      instructorCourses: [],
+      coursesProgress: {},
     };
 
     const multi = this.redisClient.multi();
@@ -173,7 +179,9 @@ export class UsersService {
       role,
       password: hashedPassword,
       enrolledCourses: [],
-      instructorCourses: []
+      instructorCourses: [],
+      coursesProgress: {},
+
     };
 
     const multi = this.redisClient.multi();
@@ -254,4 +262,195 @@ export class UsersService {
       await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
     }
   }
+
+  async markClassAsCompleted(
+    userId: string, 
+    courseId: string, 
+    classId: string, 
+    className: string
+  ): Promise<CourseProgress> {
+    try {
+      console.log('Iniciando markClassAsCompleted con:', { userId, courseId, classId, className });
+  
+      // 1. Validar que el usuario existe y está inscrito
+      const user = await this.getUserById(userId);
+      if (!user) {
+        throw new NotFoundException('Usuario no encontrado');
+      }
+  
+      if (!user.enrolledCourses.includes(courseId)) {
+        throw new BadRequestException('El usuario no está inscrito en este curso');
+      }
+  
+      // 2. Inicializar o recuperar el progreso del curso
+      let courseProgress = user.coursesProgress?.[courseId] || {
+        courseId,
+        courseName: '', 
+        status: CourseStatus.INICIADO,
+        startDate: new Date(),
+        lastAccessDate: new Date(),
+        completedClasses: [],
+        progressPercentage: 0
+      };
+  
+      // 3. Verificar si la clase ya está completada
+      const classCompleted = courseProgress.completedClasses.find(c => c.classId === classId);
+      if (!classCompleted) {
+        courseProgress.completedClasses.push({
+          classId,
+          className,
+          completedAt: new Date()
+        });
+        courseProgress.lastAccessDate = new Date();
+  
+        // Obtener el total real de clases del curso
+        const units = await this.unitService.findByCourse(courseId);
+        const totalClasses = units.reduce((total, unit) => {
+          return total + (unit.classes ? unit.classes.length : 0);
+        }, 0);
+  
+        // Calcular el porcentaje basado en el total real
+        courseProgress.progressPercentage = Math.min(
+          Math.round((courseProgress.completedClasses.length / totalClasses) * 100),
+          100
+        );
+  
+        // Actualizar estado
+        if (courseProgress.progressPercentage === 100) {
+          courseProgress.status = CourseStatus.COMPLETADO;
+        } else {
+          courseProgress.status = CourseStatus.EN_CURSO;
+        }
+  
+  
+        // 7. Guardar en Redis
+        if (!user.coursesProgress) {
+          user.coursesProgress = {};
+        }
+        user.coursesProgress[courseId] = courseProgress;
+        await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+      }
+  
+      console.log('Progreso actualizado:', courseProgress);
+      return courseProgress;
+  
+    } catch (error) {
+      console.error('Error detallado:', error);
+      throw error;
+    }
+  }
+
+  async getAllUserCoursesProgress(userId: string): Promise<CourseProgress[]> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.coursesProgress) {
+      return [];
+    }
+
+    return Object.values(user.coursesProgress);
+  }
+
+  async resetCourseProgress(userId: string, courseId: string): Promise<CourseProgress> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const newProgress: CourseProgress = {
+      courseId,
+      courseName: user.coursesProgress?.[courseId]?.courseName || '',
+      status: CourseStatus.INICIADO,
+      startDate: new Date(),
+      lastAccessDate: new Date(),
+      completedClasses: [],
+      progressPercentage: 0
+    };
+
+    if (!user.coursesProgress) {
+      user.coursesProgress = {};
+    }
+    user.coursesProgress[courseId] = newProgress;
+    await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+
+    return newProgress;
+  }
+
+  async removeClassFromProgress(
+    userId: string,
+    courseId: string,
+    classId: string
+  ): Promise<CourseProgress> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const courseProgress = user.coursesProgress?.[courseId];
+    if (!courseProgress) {
+      throw new NotFoundException('Progreso no encontrado para este curso');
+    }
+
+    courseProgress.completedClasses = courseProgress.completedClasses.filter(
+      c => c.classId !== classId
+    );
+    courseProgress.lastAccessDate = new Date();
+    courseProgress.progressPercentage = 
+      (courseProgress.completedClasses.length / 10) * 100; // Se actualizará con el sync
+
+    if (courseProgress.completedClasses.length === 0) {
+      courseProgress.status = CourseStatus.INICIADO;
+    } else if (courseProgress.progressPercentage < 100) {
+      courseProgress.status = CourseStatus.EN_CURSO;
+    }
+
+    user.coursesProgress[courseId] = courseProgress;
+    await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+
+    return courseProgress;
+  }
+
+  async updateCourseProgressDirectly(
+    userId: string,
+    courseId: string,
+    progress: CourseProgress
+  ): Promise<void> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.coursesProgress) {
+      user.coursesProgress = {};
+    }
+
+    user.coursesProgress[courseId] = progress;
+    await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+  }
+
+  async getUserCourseProgress(userId: string, courseId: string): Promise<CourseProgress> {
+    const user = await this.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+  
+    const progress = user.coursesProgress?.[courseId];
+    if (!progress) {
+      return {
+        courseId,
+        courseName: '',
+        status: CourseStatus.INICIADO,
+        startDate: new Date(),
+        lastAccessDate: new Date(),
+        completedClasses: [],
+        progressPercentage: 0
+      };
+    }
+  
+    return progress;
+  }
+
+
 }

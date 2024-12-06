@@ -1,9 +1,10 @@
 // Users Controller
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Inject, forwardRef } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
+import { SyncService } from 'src/sync/sync.service';
 
 /**
  * Controlador que maneja todas las operaciones relacionadas con usuarios
@@ -12,7 +13,9 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 @ApiTags('Users')
 @Controller('users')
 export class UsersController {
-    constructor(private readonly userService: UsersService) {}
+    constructor(private readonly userService: UsersService,
+                @Inject(forwardRef(() => SyncService))
+                private readonly syncService: SyncService) {}
 
     /**
      * Crea un nuevo usuario en el sistema
@@ -74,4 +77,41 @@ export class UsersController {
         const user = await this.userService.registerUser(createUserDto);
         return { message: 'Usuario registrado exitosamente' };
     }
-}
+
+    @Post(':userId/courses/:courseId/progress')
+    async markClassCompleted(
+      @Param('userId') userId: string,
+      @Param('courseId') courseId: string,
+      @Body() data: { classId: string; className: string }
+    ) {
+      return this.userService.markClassAsCompleted(
+        userId,
+        courseId,
+        data.classId,
+        data.className
+      );
+    }
+  
+    @Get(':userId/courses/progress')
+    async getAllProgress(@Param('userId') userId: string) {
+      await this.syncService.syncUserProgress(userId);
+      return this.userService.getAllUserCoursesProgress(userId);
+    }
+  
+    @Get(':userId/courses/:courseId/progress')
+    async getCourseProgress(
+      @Param('userId') userId: string,
+      @Param('courseId') courseId: string
+    ) {
+      await this.syncService.syncUserProgress(userId);
+      return this.userService.getUserCourseProgress(userId, courseId); // Método correcto
+    }
+  
+    @Delete(':userId/courses/:courseId/progress')
+    async resetProgress(
+      @Param('userId') userId: string,
+      @Param('courseId') courseId: string
+    ) {
+      return this.userService.resetCourseProgress(userId, courseId);
+    }
+  }

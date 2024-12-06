@@ -30,6 +30,21 @@ export class UnitService {
       .exec();
   }
 
+  async findByCourse(courseId: string): Promise<Unit[]> {
+    if (!Types.ObjectId.isValid(courseId)) {
+      throw new BadRequestException('ID de curso inválido');
+    }
+
+    return this.unitModel
+      .find({ course: courseId })
+      .populate('classes')
+      .populate({
+        path: 'course',
+        select: '_id name'
+      })
+      .exec();
+  }
+
   async findOne(id: string): Promise<Unit> {
     const unit = await this.unitModel
       .findById(id)

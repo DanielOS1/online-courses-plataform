@@ -11,6 +11,7 @@ import { RatingModule } from './rating/rating.module';
 import { CommentsModule } from './comments/comments.module';
 import { RedisModule } from './redis/redis.module';
 import { Neo4jModule } from './neo4j/neo4j.module';
+import { SyncModule } from './sync/sync.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { Neo4jModule } from './neo4j/neo4j.module';
     CommentsModule,
     RedisModule,
     Neo4jModule,
+    SyncModule,
   ],
   controllers: [AppController],
   providers: [AppService],
