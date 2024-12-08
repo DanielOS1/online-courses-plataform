@@ -268,77 +268,92 @@ export class UsersService {
     courseId: string, 
     classId: string, 
     className: string
-  ): Promise<CourseProgress> {
+): Promise<CourseProgress> {
     try {
-      console.log('Iniciando markClassAsCompleted con:', { userId, courseId, classId, className });
-  
-      // 1. Validar que el usuario existe y está inscrito
-      const user = await this.getUserById(userId);
-      if (!user) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
-  
-      if (!user.enrolledCourses.includes(courseId)) {
-        throw new BadRequestException('El usuario no está inscrito en este curso');
-      }
-  
-      // 2. Inicializar o recuperar el progreso del curso
-      let courseProgress = user.coursesProgress?.[courseId] || {
-        courseId,
-        courseName: '', 
-        status: CourseStatus.INICIADO,
-        startDate: new Date(),
-        lastAccessDate: new Date(),
-        completedClasses: [],
-        progressPercentage: 0
-      };
-  
-      // 3. Verificar si la clase ya está completada
-      const classCompleted = courseProgress.completedClasses.find(c => c.classId === classId);
-      if (!classCompleted) {
-        courseProgress.completedClasses.push({
-          classId,
-          className,
-          completedAt: new Date()
-        });
-        courseProgress.lastAccessDate = new Date();
-  
-        // Obtener el total real de clases del curso
+        console.log('1. Iniciando markClassAsCompleted con:', { userId, courseId, classId, className });
+
+        // 1. Validar que el usuario existe y está inscrito
+        const user = await this.getUserById(userId);
+        console.log('2. Usuario encontrado:', user);
+
+        if (!user) {
+            throw new NotFoundException('Usuario no encontrado');
+        }
+
+        if (!user.enrolledCourses.includes(courseId)) {
+            throw new BadRequestException('El usuario no está inscrito en este curso');
+        }
+
+        // Obtener información del curso para el nombre
         const units = await this.unitService.findByCourse(courseId);
+        console.log('3. Unidades encontradas:', units);
+
+        // Obtener el total de clases
         const totalClasses = units.reduce((total, unit) => {
-          return total + (unit.classes ? unit.classes.length : 0);
+            console.log('4. Procesando unidad:', unit);
+            return total + (unit.classes ? unit.classes.length : 0);
         }, 0);
-  
-        // Calcular el porcentaje basado en el total real
-        courseProgress.progressPercentage = Math.min(
-          Math.round((courseProgress.completedClasses.length / totalClasses) * 100),
-          100
-        );
-  
-        // Actualizar estado
-        if (courseProgress.progressPercentage === 100) {
-          courseProgress.status = CourseStatus.COMPLETADO;
-        } else {
-          courseProgress.status = CourseStatus.EN_CURSO;
+        console.log('5. Total de clases encontradas:', totalClasses);
+
+        // 2. Inicializar o recuperar el progreso del curso
+        let courseProgress = user.coursesProgress?.[courseId] || {
+            courseId,
+            courseName: "", // Agregamos el nombre del curso
+            status: CourseStatus.INICIADO,
+            startDate: new Date(),
+            lastAccessDate: new Date(),
+            completedClasses: [],
+            progressPercentage: 0 // Inicializamos en 0 en lugar de null
+        };
+        console.log('6. Progreso inicial del curso:', courseProgress);
+
+        // 3. Verificar si la clase ya está completada
+        const classCompleted = courseProgress.completedClasses.find(c => c.classId === classId);
+        if (!classCompleted) {
+            courseProgress.completedClasses.push({
+                classId,
+                className,
+                completedAt: new Date()
+            });
+            courseProgress.lastAccessDate = new Date();
+
+            // Calcular el porcentaje basado en el total real
+            if (totalClasses > 0) {
+                courseProgress.progressPercentage = Math.min(
+                    Math.round((courseProgress.completedClasses.length / totalClasses) * 100),
+                    100
+                );
+            } else {
+                courseProgress.progressPercentage = 0;
+            }
+            console.log('7. Nuevo porcentaje calculado:', courseProgress.progressPercentage);
+
+            // Actualizar estado
+            if (courseProgress.progressPercentage === 100) {
+                courseProgress.status = CourseStatus.COMPLETADO;
+            } else if (courseProgress.progressPercentage > 0) {
+                courseProgress.status = CourseStatus.EN_CURSO;
+            }
+            console.log('8. Nuevo estado:', courseProgress.status);
+
+            // Guardar en Redis
+            if (!user.coursesProgress) {
+                user.coursesProgress = {};
+            }
+            user.coursesProgress[courseId] = courseProgress;
+            await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+            console.log('9. Guardado en Redis completado');
         }
-  
-  
-        // 7. Guardar en Redis
-        if (!user.coursesProgress) {
-          user.coursesProgress = {};
-        }
-        user.coursesProgress[courseId] = courseProgress;
-        await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
-      }
-  
-      console.log('Progreso actualizado:', courseProgress);
-      return courseProgress;
-  
+
+        console.log('10. Progreso final:', courseProgress);
+        return courseProgress;
+
     } catch (error) {
-      console.error('Error detallado:', error);
-      throw error;
+        console.error('Error detallado:', error);
+        console.error('Stack trace:', error.stack);
+        throw error;
     }
-  }
+}
 
   async getAllUserCoursesProgress(userId: string): Promise<CourseProgress[]> {
     const user = await this.getUserById(userId);
@@ -431,26 +446,80 @@ export class UsersService {
   }
 
   async getUserCourseProgress(userId: string, courseId: string): Promise<CourseProgress> {
+    console.log('1. Iniciando getUserCourseProgress:', { userId, courseId });
+
     const user = await this.getUserById(userId);
+    console.log('2. Usuario encontrado:', user);
+    
     if (!user) {
-      throw new NotFoundException('Usuario no encontrado');
+        throw new NotFoundException('Usuario no encontrado');
     }
-  
+
     const progress = user.coursesProgress?.[courseId];
+    console.log('3. Progreso actual:', progress);
+
     if (!progress) {
-      return {
-        courseId,
-        courseName: '',
-        status: CourseStatus.INICIADO,
-        startDate: new Date(),
-        lastAccessDate: new Date(),
-        completedClasses: [],
-        progressPercentage: 0
-      };
+        console.log('4. No se encontró progreso, creando uno nuevo');
+        return {
+            courseId,
+            courseName: '',
+            status: CourseStatus.INICIADO,
+            startDate: new Date(),
+            lastAccessDate: new Date(),
+            completedClasses: [],
+            progressPercentage: 0
+        };
     }
-  
-    return progress;
-  }
+
+    console.log('5. Verificando y limpiando valores del progreso');
+    
+    // Limpiar clases completadas
+    const validCompletedClasses = progress.completedClasses
+        .filter(clase => clase.classId && clase.className);
+    
+    console.log('5.1 Clases válidas encontradas:', validCompletedClasses);
+
+    // Obtener total de clases
+    const units = await this.unitService.findByCourse(courseId);
+    console.log('5.2 Unidades encontradas:', units);
+
+    // Calcular total de clases
+    const totalClasses = units.reduce((total, unit) => {
+        console.log('5.3 Procesando unidad:', {
+            unitId: unit._id,
+            classes: unit.classes,
+            classesLength: unit.classes?.length
+        });
+        return total + (unit.classes?.length || 0);
+    }, 0);
+    
+    console.log('5.4 Total de clases calculado:', totalClasses);
+    console.log('5.5 Número de clases completadas:', validCompletedClasses.length);
+
+    // Calcular porcentaje
+    const percentage = totalClasses > 0 
+        ? Math.round((validCompletedClasses.length / totalClasses) * 100)
+        : 0;
+    
+    console.log('5.6 Porcentaje calculado:', percentage);
+
+    const validatedProgress = {
+        ...progress,
+        completedClasses: validCompletedClasses,
+        progressPercentage: percentage,
+        status: validCompletedClasses.length > 0 ? CourseStatus.EN_CURSO : CourseStatus.INICIADO
+    };
+
+    console.log('6. Progreso validado final:', validatedProgress);
+
+    // Actualizar en Redis
+    if (user.coursesProgress) {
+        user.coursesProgress[courseId] = validatedProgress;
+        await this.redisClient.set(`user:email:${user.email}`, JSON.stringify(user));
+    }
+
+    return validatedProgress;
+}
 
 
 }

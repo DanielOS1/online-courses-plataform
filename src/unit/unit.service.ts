@@ -31,19 +31,28 @@ export class UnitService {
   }
 
   async findByCourse(courseId: string): Promise<Unit[]> {
-    if (!Types.ObjectId.isValid(courseId)) {
-      throw new BadRequestException('ID de curso inválido');
-    }
+    console.log('Buscando unidades para el curso:', courseId);
+    
+    try {
+        const units = await this.unitModel
+            .find()
+            .populate('course')
+            .populate('classes')
+            .exec();
 
-    return this.unitModel
-      .find({ course: courseId })
-      .populate('classes')
-      .populate({
-        path: 'course',
-        select: '_id name'
-      })
-      .exec();
-  }
+        const filteredUnits = units.filter(unit => 
+            unit.course && unit.course._id.toString() === courseId
+        );
+
+        console.log('Total unidades encontradas:', units.length);
+        console.log('Unidades filtradas para el curso:', filteredUnits.length);
+        
+        return filteredUnits;
+    } catch (error) {
+        console.error('Error buscando unidades:', error);
+        return [];
+    }
+}
 
   async findOne(id: string): Promise<Unit> {
     const unit = await this.unitModel

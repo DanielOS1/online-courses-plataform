@@ -104,7 +104,7 @@ export class UsersController {
       @Param('courseId') courseId: string
     ) {
       await this.syncService.syncUserProgress(userId);
-      return this.userService.getUserCourseProgress(userId, courseId); // Método correcto
+      return this.userService.getUserCourseProgress(userId, courseId); 
     }
   
     @Delete(':userId/courses/:courseId/progress')
