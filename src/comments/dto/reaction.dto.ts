@@ -1,15 +1,11 @@
-import { IsNotEmpty, IsMongoId, IsEnum } from 'class-validator';
+import { IsEnum } from 'class-validator';
 
 export enum ReactionType {
-  LIKE = 'like',
-  DISLIKE = 'dislike'
+  LIKE = 'LIKE',
+  DISLIKE = 'DISLIKE'
 }
 
 export class ReactionDto {
-  @IsNotEmpty()
-  @IsMongoId()
-  userId: string;
-
   @IsEnum(ReactionType)
   type: ReactionType;
 }

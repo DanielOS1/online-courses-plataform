@@ -6,139 +6,111 @@ import {
   Patch, 
   Param, 
   Delete, 
-  Query 
+  Query, 
+  UsePipes,
+  ValidationPipe
 } from '@nestjs/common';
-import { CommentService } from './comments.service';
-import { CreateCommentDto } from './dto/create-comment.dto';
-import { UpdateCommentDto } from './dto/update-comment.dto';
+import { CommentsService } from './comments.service';
+import { CommentDto } from './dto/comment.dto';
 import { ReactionDto } from './dto/reaction.dto';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 
-/**
- * Controlador para manejar las operaciones relacionadas con comentarios
- */
-@ApiTags('Comments')
+@ApiTags('comments')
 @Controller('comments')
-export class CommentController {
-  constructor(private readonly commentService: CommentService) {}
+export class CommentsController {
+  constructor(private readonly commentsService: CommentsService) {}
 
-  /**
-   * Crea un nuevo comentario
-   * @param createCommentDto - Objeto con la informacion del comentario a crear
-   * @returns El comentario creado
-   */
-  @Post()
-  @ApiOperation({ summary: 'Crear un nuevo comentario' })
-  @ApiResponse({ status: 201, description: 'Comentario creado exitosamente' })
-  async create(@Body() createCommentDto: CreateCommentDto) {
-    return this.commentService.create(createCommentDto);
-  }
-
-  /**
-   * Obtiene todos los comentarios
-   * @returns Lista de todos los comentarios
-   */
   @Get()
-  @ApiOperation({ summary: 'Obtener todos los comentarios' })
-  @ApiResponse({ status: 200, description: 'Lista de comentarios obtenida exitosamente' })
-  async findAll() {
-    return this.commentService.findAll();
+  @ApiOperation({ summary: 'Get all comments' })
+  @ApiResponse({ status: 200, description: 'Returns all comments' })
+  findAll() {
+    return this.commentsService.findAll();
   }
 
-  /**
-   * Obtiene los comentarios de un curso especifico
-   * @param courseId - ID del curso
-   * @param limit - Numero maximo de comentarios a obtener (opcional)
-   * @returns Lista de comentarios del curso especificado
-   */
+  @Post(':courseId/:userId')
+  @ApiOperation({ summary: 'Create a new comment' })
+  @ApiParam({ name: 'courseId', description: 'Course ID' })
+  @ApiParam({ name: 'userId', description: 'User ID' })
+  @ApiResponse({ status: 201, description: 'Comment created successfully' })
+  @UsePipes(new ValidationPipe({skipMissingProperties: true}))
+  @UsePipes(new ValidationPipe({forbidNonWhitelisted: true, whitelist: true, transform: true}))
+  create(
+    @Param('courseId') courseId: string,
+    @Param('userId') userId: string,
+    @Body() commentDto: CommentDto
+  ) {
+    return this.commentsService.create(courseId, userId, commentDto);
+  }
+
   @Get('course/:courseId')
-  @ApiOperation({ summary: 'Obtener comentarios de un curso' })
-  @ApiParam({ name: 'courseId', description: 'ID del curso' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Limite de comentarios' })
-  @ApiResponse({ status: 200, description: 'Comentarios del curso obtenidos exitosamente' })
-  async findByCourse(
+  @ApiOperation({ summary: 'Get comments by course' })
+  @ApiParam({ name: 'courseId', description: 'Course ID' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Limit the number of results' })
+  @ApiResponse({ status: 200, description: 'Returns comments for a specific course' })
+  findByCourse(
     @Param('courseId') courseId: string,
-    @Query('limit') limit?: number,
+    @Query('limit') limit?: number
   ) {
-    return this.commentService.findByCourse(courseId, limit);
+    return this.commentsService.findByCourse(courseId, limit);
   }
 
-  /**
-   * Obtiene los comentarios mas relevantes de un curso especifico
-   * @param courseId - ID del curso
-   * @param limit - Numero maximo de comentarios a obtener (opcional)
-   * @returns Lista de los comentarios mas relevantes del curso
-   */
   @Get('course/:courseId/top')
-  @ApiOperation({ summary: 'Obtener los comentarios mas relevantes de un curso' })
-  @ApiParam({ name: 'courseId', description: 'ID del curso' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Limite de comentarios' })
-  @ApiResponse({ status: 200, description: 'Comentarios mas relevantes obtenidos exitosamente' })
-  async getTopComments(
+  @ApiOperation({ summary: 'Get top comments by course' })
+  @ApiParam({ name: 'courseId', description: 'Course ID' })
+  @ApiQuery({ name: 'limit', required: false, description: 'Limit the number of results' })
+  @ApiResponse({ status: 200, description: 'Returns top comments for a specific course' })
+  getTopComments(
     @Param('courseId') courseId: string,
-    @Query('limit') limit?: number,
+    @Query('limit') limit?: number
   ) {
-    return this.commentService.getTopComments(courseId, limit);
+    return this.commentsService.getTopComments(courseId, limit);
   }
 
-  /**
-   * Obtiene un comentario especifico por su ID
-   * @param id - ID del comentario
-   * @returns El comentario encontrado
-   */
   @Get(':id')
-  @ApiOperation({ summary: 'Obtener un comentario por ID' })
-  @ApiParam({ name: 'id', description: 'ID del comentario' })
-  @ApiResponse({ status: 200, description: 'Comentario obtenido exitosamente' })
-  async findOne(@Param('id') id: string) {
-    return this.commentService.findOne(id);
+  @ApiOperation({ summary: 'Get comment by ID' })
+  @ApiParam({ name: 'id', description: 'Comment ID' })
+  @ApiResponse({ status: 200, description: 'Returns a specific comment' })
+  @ApiResponse({ status: 404, description: 'Comment not found' })
+  findOne(@Param('id') id: string) {
+    return this.commentsService.findOne(id);
   }
 
-  /**
-   * Actualiza un comentario especifico por su ID
-   * @param id - ID del comentario
-   * @param updateCommentDto - Objeto con los datos actualizados del comentario
-   * @returns El comentario actualizado
-   */
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar un comentario' })
-  @ApiParam({ name: 'id', description: 'ID del comentario' })
-  @ApiBody({ type: UpdateCommentDto })
-  @ApiResponse({ status: 200, description: 'Comentario actualizado exitosamente' })
-  async update(@Param('id') id: string, @Body() updateCommentDto: UpdateCommentDto) {
-    return this.commentService.update(id, updateCommentDto);
-  }
-
-  /**
-   * Elimina un comentario especifico por su ID
-   * @param id - ID del comentario a eliminar
-   * @param userId - ID del usuario que elimino el comentario
-   * @returns Mensaje de confirmacion de eliminacion
-   */
-  @Delete(':id')
-  @ApiOperation({ summary: 'Eliminar un comentario' })
-  @ApiParam({ name: 'id', description: 'ID del comentario' })
-  @ApiBody({ schema: { example: { userId: 'user123' } } })
-  @ApiResponse({ status: 200, description: 'Comentario eliminado exitosamente' })
-  async remove(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.commentService.remove(id, userId);
-  }
-
-  /**
-   * Maneja una reaccion a un comentario
-   * @param id - ID del comentario
-   * @param reactionDto - Objeto con la informacion de la reaccion
-   * @returns Comentario con reaccion actualizada
-   */
-  @Post(':id/reaction')
-  @ApiOperation({ summary: 'Reaccionar a un comentario' })
-  @ApiParam({ name: 'id', description: 'ID del comentario' })
-  @ApiBody({ type: ReactionDto })
-  @ApiResponse({ status: 200, description: 'Reaccion registrada exitosamente' })
-  async handleReaction(
+  @ApiOperation({ summary: 'Update comment' })
+  @ApiParam({ name: 'id', description: 'Comment ID' })
+  @ApiResponse({ status: 200, description: 'Comment updated successfully' })
+  @ApiResponse({ status: 404, description: 'Comment not found' })
+  @UsePipes(new ValidationPipe({skipMissingProperties: true}))
+  @UsePipes(new ValidationPipe({forbidNonWhitelisted: true, whitelist: true, transform: true}))
+  update(
     @Param('id') id: string,
-    @Body() reactionDto: ReactionDto,
+    @Body() commentDto: CommentDto
   ) {
-    return this.commentService.handleReaction(id, reactionDto);
+    return this.commentsService.update(id, commentDto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete comment' })
+  @ApiParam({ name: 'id', description: 'Comment ID' })
+  @ApiResponse({ status: 200, description: 'Comment deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Comment not found' })
+  remove(@Param('id') id: string) {
+    return this.commentsService.remove(id);
+  }
+
+  @Post(':id/reaction/:userId')
+  @ApiOperation({ summary: 'Handle reaction to comment' })
+  @ApiParam({ name: 'id', description: 'Comment ID' })
+  @ApiParam({ name: 'userId', description: 'User ID' })
+  @ApiResponse({ status: 201, description: 'Reaction handled successfully' })
+  @ApiResponse({ status: 404, description: 'Comment not found' })
+  @UsePipes(new ValidationPipe({skipMissingProperties: true}))
+  @UsePipes(new ValidationPipe({forbidNonWhitelisted: true, whitelist: true, transform: true}))
+  handleReaction(
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() reactionDto: ReactionDto
+  ) {
+    return this.commentsService.handleReaction(id, userId, reactionDto);
   }
 }

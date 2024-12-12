@@ -1,144 +1,258 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Comment, CommentDocument } from './schema/comment.schema';
-import { CreateCommentDto } from './dto/create-comment.dto';
-import { UpdateCommentDto } from './dto/update-comment.dto';
-import { ReactionDto, ReactionType } from './dto/reaction.dto';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Driver, Session } from 'neo4j-driver';
+import { Comment } from './interfaces/comment.interface';
+import { CommentDto } from './dto/comment.dto';
+import { ReactionDto } from './dto/reaction.dto';
 
 @Injectable()
-export class CommentService {
-  constructor(
-    @InjectModel(Comment.name) private commentModel: Model<CommentDocument>,
-  ) {}
+export class CommentsService {
+  constructor(@Inject('NEO4J_DRIVER') private readonly neo4j: Driver) {}
 
-  async create(createCommentDto: CreateCommentDto): Promise<Comment> {
-    const newComment = new this.commentModel({
-      author: createCommentDto.authorId,
-      course: createCommentDto.courseId,
-      title: createCommentDto.title,
-      content: createCommentDto.content,
-    });
+  private getSession(): Session {
+    return this.neo4j.session();
+  }
 
-    return newComment.save();
+  async create(courseId: string, userId: string, commentDto: CommentDto): Promise<Comment> {
+    const session = this.getSession();
+    try {
+      // First verify that both user and course exist
+      const existenceCheck = await session.run(`
+        MATCH (u:User {_id: $userId})
+        MATCH (c:Course {_id: $courseId})
+        RETURN u, c
+      `, { userId, courseId });
+
+      if (existenceCheck.records.length === 0) {
+        throw new NotFoundException('User or Course not found');
+      }
+
+      const query = `
+        MATCH (u:User {_id: $userId})
+        MATCH (c:Course {_id: $courseId})
+        CREATE (comment:Comment {
+          _id: randomUUID(),
+          title: $title,
+          content: $content,
+          authorId: $userId,
+          authorName: u.name,
+          courseId: $courseId,
+          likeCount: 0,
+          dislikeCount: 0,
+          createdAt: datetime(),
+          updatedAt: datetime()
+        })
+        CREATE (u)-[:COMMENTS]->(comment)
+        CREATE (comment)-[:BELONGS_TO]->(c)
+        RETURN comment
+      `;
+      
+      const { records } = await session.run(query, {
+        userId,
+        courseId,
+        ...commentDto,
+      });
+      
+      return this.mapCommentProperties(records[0].get('comment'));
+    } finally {
+      await session.close();
+    }
   }
 
   async findAll(): Promise<Comment[]> {
-    return this.commentModel
-      .find()
-      .populate('author', 'name')
-      .sort({ createdAt: -1 });
-  }
-
-  async findOne(id: string): Promise<Comment> {
-    const comment = await this.commentModel
-      .findById(id)
-      .populate('author', 'name');
-    
-    if (!comment) {
-      throw new NotFoundException('Comentario no encontrado');
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (comment:Comment)
+        RETURN comment
+        ORDER BY comment.createdAt DESC
+      `;
+      
+      const { records } = await session.run(query);
+      return records.map(record => this.mapCommentProperties(record.get('comment')));
+    } finally {
+      await session.close();
     }
-    return comment;
   }
 
   async findByCourse(courseId: string, limit?: number): Promise<Comment[]> {
-    let query = this.commentModel
-      .find({ course: courseId })
-      .populate('author', 'name')
-      .sort({ likeCount: -1, createdAt: -1 });
+    const session = this.getSession();
+    try {
+      // First verify that course exists
+      const courseExists = await session.run(`
+        MATCH (c:Course {_id: $courseId})
+        RETURN c
+      `, { courseId });
 
-    if (limit) {
-      query = query.limit(limit);
+      if (courseExists.records.length === 0) {
+        throw new NotFoundException(`Course with ID ${courseId} not found`);
+      }
+
+      const query = `
+        MATCH (comment:Comment)-[:BELONGS_TO]->(c:Course {_id: $courseId})
+        RETURN comment
+        ORDER BY comment.createdAt DESC
+        ${limit ? 'LIMIT $limit' : ''}
+      `;
+      
+      const { records } = await session.run(query, { 
+        courseId, 
+        limit: limit ? parseInt(limit.toString()) : null 
+      });
+      
+      return records.map(record => this.mapCommentProperties(record.get('comment')));
+    } finally {
+      await session.close();
     }
-
-    return query.exec();
   }
 
-  async getTopComments(courseId: string, limit: number = 3): Promise<Comment[]> {
-    return this.commentModel
-      .find({ course: courseId })
-      .populate('author', 'name')
-      .sort({ likeCount: -1 })
-      .limit(limit)
-      .exec();
+  async getTopComments(courseId: string, limit?: number): Promise<Comment[]> {
+    const session = this.getSession();
+    try {
+      // First verify that course exists
+      const courseExists = await session.run(`
+        MATCH (c:Course {_id: $courseId})
+        RETURN c
+      `, { courseId });
+
+      if (courseExists.records.length === 0) {
+        throw new NotFoundException(`Course with ID ${courseId} not found`);
+      }
+
+      const query = `
+        MATCH (comment:Comment)-[:BELONGS_TO]->(c:Course {_id: $courseId})
+        WITH comment, comment.likeCount - comment.dislikeCount as relevance
+        RETURN comment
+        ORDER BY relevance DESC
+        ${limit ? 'LIMIT $limit' : ''}
+      `;
+      
+      const { records } = await session.run(query, { 
+        courseId, 
+        limit: limit ? parseInt(limit.toString()) : null 
+      });
+      
+      return records.map(record => this.mapCommentProperties(record.get('comment')));
+    } finally {
+      await session.close();
+    }
   }
 
-  async update(id: string, updateCommentDto: UpdateCommentDto): Promise<Comment> {
-    const comment = await this.commentModel.findById(id);
-    
-    if (!comment) {
-      throw new NotFoundException('Comentario no encontrado');
+  async findOne(id: string): Promise<Comment> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (comment:Comment {_id: $id})
+        RETURN comment
+      `;
+      
+      const { records } = await session.run(query, { id });
+      if (records.length === 0) {
+        throw new NotFoundException(`Comment with ID ${id} not found`);
+      }
+      
+      return this.mapCommentProperties(records[0].get('comment'));
+    } finally {
+      await session.close();
     }
-
-    if (comment.author.toString() !== updateCommentDto.authorId) {
-      throw new BadRequestException('No tienes permiso para modificar este comentario');
-    }
-
-    return this.commentModel.findByIdAndUpdate(
-      id,
-      {
-        title: updateCommentDto.title,
-        content: updateCommentDto.content,
-        updatedAt: new Date(),
-      },
-      { new: true },
-    );
   }
 
-  async remove(id: string, userId: string): Promise<void> {
-    const comment = await this.commentModel.findById(id);
-    
-    if (!comment) {
-      throw new NotFoundException('Comentario no encontrado');
+  async update(id: string, commentDto: CommentDto): Promise<Comment> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (comment:Comment {_id: $id})
+        SET comment += {
+          title: $title,
+          content: $content,
+          updatedAt: datetime()
+        }
+        RETURN comment
+      `;
+      
+      const { records } = await session.run(query, { id, ...commentDto });
+      if (records.length === 0) {
+        throw new NotFoundException(`Comment with ID ${id} not found`);
+      }
+      
+      return this.mapCommentProperties(records[0].get('comment'));
+    } finally {
+      await session.close();
     }
-
-    if (comment.author.toString() !== userId) {
-      throw new BadRequestException('No tienes permiso para eliminar este comentario');
-    }
-
-    await this.commentModel.findByIdAndDelete(id);
   }
 
-  async handleReaction(commentId: string, reactionDto: ReactionDto): Promise<Comment> {
-    const comment = await this.commentModel.findById(commentId);
-    if (!comment) {
-      throw new NotFoundException('Comentario no encontrado');
+  async remove(id: string): Promise<void> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (comment:Comment {_id: $id})
+        DETACH DELETE comment
+      `;
+      
+      const result = await session.run(query, { id });
+
+      const nodesDeleted = result.summary.counters.updates().nodesDeleted;
+      if (nodesDeleted === 0) {
+        throw new NotFoundException(`Comment with ID ${id} not found`);
+      }
+    } finally {
+      await session.close();
     }
-
-    const { userId, type } = reactionDto;
-
-    // Remover reacciones existentes del usuario
-    await this.removeExistingReactions(comment, userId);
-
-    // Agregar nueva reacción
-    if (type === ReactionType.LIKE) {
-      comment.likes.push(userId as any);
-      comment.likeCount = comment.likes.length;
-    } else {
-      comment.dislikes.push(userId as any);
-      comment.dislikeCount = comment.dislikes.length;
-    }
-
-    return comment.save();
   }
 
-  private async removeExistingReactions(comment: CommentDocument, userId: string) {
-    const userIdString = userId.toString();
-    
-    // Remover de likes
-    const likeIndex = comment.likes.findIndex(id => id.toString() === userIdString);
-    if (likeIndex > -1) {
-      comment.likes.splice(likeIndex, 1);
-    }
+  async handleReaction(id: string, userId: string, reactionDto: ReactionDto): Promise<Comment> {
+    const session = this.getSession();
+    try {
+      // First verify that both user and comment exist
+      const existenceCheck = await session.run(`
+        MATCH (u:User {_id: $userId})
+        MATCH (c:Comment {_id: $id})
+        RETURN u, c
+      `, { userId, id });
 
-    // Remover de dislikes
-    const dislikeIndex = comment.dislikes.findIndex(id => id.toString() === userIdString);
-    if (dislikeIndex > -1) {
-      comment.dislikes.splice(dislikeIndex, 1);
-    }
+      if (existenceCheck.records.length === 0) {
+        throw new NotFoundException('User or Comment not found');
+      }
 
-    // Actualizar contadores
-    comment.likeCount = comment.likes.length;
-    comment.dislikeCount = comment.dislikes.length;
+      // Remove any existing reaction
+      await session.run(`
+        MATCH (u:User {_id: $userId})-[r:LIKES|DISLIKES]->(c:Comment {_id: $id})
+        DELETE r
+      `, { userId, id });
+
+      // Update counters and create new reaction
+      const query = `
+        MATCH (u:User {_id: $userId})
+        MATCH (comment:Comment {_id: $id})
+        SET comment.likeCount = comment.likeCount + 
+          CASE WHEN $type = 'LIKE' THEN 1 
+               WHEN comment.likeCount > 0 THEN -1 
+               ELSE 0 END,
+        comment.dislikeCount = comment.dislikeCount + 
+          CASE WHEN $type = 'DISLIKE' THEN 1 
+               WHEN comment.dislikeCount > 0 THEN -1 
+               ELSE 0 END
+        CREATE (u)-[:${reactionDto.type === 'LIKE' ? 'LIKES' : 'DISLIKES'}]->(comment)
+        RETURN comment
+      `;
+      
+      const { records } = await session.run(query, {
+        id,
+        userId,
+        type: reactionDto.type
+      });
+      
+      return this.mapCommentProperties(records[0].get('comment'));
+    } finally {
+      await session.close();
+    }
+  }
+
+  private mapCommentProperties(node: any): Comment {
+    const properties = node.properties;
+    return {
+      ...properties,
+      createdAt: new Date(properties.createdAt),
+      updatedAt: new Date(properties.updatedAt)
+    };
   }
 }
