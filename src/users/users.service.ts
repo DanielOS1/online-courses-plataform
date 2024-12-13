@@ -7,6 +7,7 @@ import { User } from './../redis/interfaces/user.interface';
 import { CourseProgress, CourseStatus } from 'src/redis/interfaces/course-progress.interface';
 import { ClassService } from 'src/class/class.service';
 import { UnitService } from 'src/unit/unit.service';
+import { Neo4jUserService } from './neo4j-user-service';
 
 @Injectable()
 export class UsersService {
@@ -14,7 +15,8 @@ export class UsersService {
     @Inject('REDIS_CLIENT')
     private readonly redisClient: Redis,
     private readonly classService: ClassService,
-    private readonly unitService: UnitService
+    private readonly unitService: UnitService,
+    private readonly neo4jUserService: Neo4jUserService,
   ) {}
 
   private async getUserByEmail(email: string): Promise<User | null> {
@@ -36,34 +38,6 @@ export class UsersService {
 
   private async generateUserId(): Promise<string> {
     return (await this.redisClient.incr('user:id:counter')).toString();
-  }
-
-  async createUser(createUserDto: CreateUserDto): Promise<User> {
-    const { email, password } = createUserDto;
-
-    const existingUser = await this.getUserByEmail(email);
-    if (existingUser) {
-      throw new ConflictException('El correo electrónico ya está registrado.');
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const userId = await this.generateUserId();
-
-    const newUser: User = {
-      _id: userId.toString(),
-      ...createUserDto,
-      password: hashedPassword,
-      enrolledCourses: [],
-      instructorCourses: [],
-      coursesProgress: {},
-    };
-
-    const multi = this.redisClient.multi();
-    multi.set(`user:email:${email}`, JSON.stringify(newUser));
-    multi.set(`user:id:${userId}`, email);
-
-    await multi.exec();
-    return newUser;
   }
 
   async findAll(): Promise<User[]> {
@@ -142,6 +116,10 @@ export class UsersService {
     Object.assign(updatedUser, updateUserDto);
 
     await this.redisClient.set(`user:email:${updatedUser.email}`, JSON.stringify(updatedUser));
+
+    // Actualizar nodo en Neo4j
+    await this.neo4jUserService.updateUserNode(updatedUser);
+
     return updatedUser;
   }
 
@@ -190,6 +168,10 @@ export class UsersService {
     multi.set(`user:id:${userId}`, email);
 
     await multi.exec();
+
+    // Crear nodo en Neo4j
+    await this.neo4jUserService.createUserNode(newUser);
+
     return newUser;
   }
 
@@ -205,6 +187,9 @@ export class UsersService {
     multi.del(`user:id:${id}`);
     
     await multi.exec();
+
+    // Eliminar nodo en Neo4j
+    await this.neo4jUserService.deleteUserNode(id);
   }
 
   async addCourseToUser(userId: string, courseId: string): Promise<void> {

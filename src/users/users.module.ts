@@ -5,8 +5,8 @@ import { User, UserSchema } from './schema/user.schema';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SyncModule } from 'src/sync/sync.module';
 import { ClassModule } from 'src/class/class.module';
-import { UnitService } from 'src/unit/unit.service';
 import { UnitModule } from 'src/unit/unit.module';
+import { Neo4jUserService } from './neo4j-user-service';
 
 @Module({
   imports: [
@@ -16,7 +16,7 @@ import { UnitModule } from 'src/unit/unit.module';
     UnitModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService],
+  providers: [UsersService, Neo4jUserService],
   exports: [UsersService]
 })
 export class UsersModule {}

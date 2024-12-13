@@ -1,10 +1,11 @@
 // Users Controller
-import { Controller, Get, Post, Body, Param, Delete, Inject, forwardRef } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Delete, Inject, forwardRef, Patch } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
 import { SyncService } from 'src/sync/sync.service';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 /**
  * Controlador que maneja todas las operaciones relacionadas con usuarios
@@ -16,18 +17,6 @@ export class UsersController {
     constructor(private readonly userService: UsersService,
                 @Inject(forwardRef(() => SyncService))
                 private readonly syncService: SyncService) {}
-
-    /**
-     * Crea un nuevo usuario en el sistema
-     * @param {CreateUserDto} createUserDto - Datos del usuario a crear
-     * @returns {Promise<User>} Usuario creado
-     */
-    @Post('')
-    @ApiOperation({ summary: 'Crear un nuevo usuario' })
-    @ApiResponse({ status: 201, description: 'Usuario creado exitosamente' })
-    async createUser(@Body() createUserDto: CreateUserDto) {
-        return this.userService.createUser(createUserDto);
-    }
 
     /**
      * Obtiene todos los usuarios del sistema
@@ -51,6 +40,11 @@ export class UsersController {
     @ApiResponse({ status: 200, description: 'Usuario encontrado' })
     async getUserById(@Param('id') id: string) {
         return this.userService.findOneById(id);
+    }
+
+    @Patch(':id')
+    async updateUser(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+      return this.userService.updateUser(id, updateUserDto);
     }
 
     /**
@@ -113,5 +107,10 @@ export class UsersController {
       @Param('courseId') courseId: string
     ) {
       return this.userService.resetCourseProgress(userId, courseId);
+    }
+
+    @Delete(':userId')
+    async deleteUser(@Param('userId') userId: string) {
+      return this.userService.deleteUser(userId);
     }
   }
