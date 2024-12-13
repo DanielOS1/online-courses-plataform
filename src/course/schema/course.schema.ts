@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema as MongooseSchema } from 'mongoose';
 import { Unit } from 'src/unit/schema/unit.schema';
-import { Comment } from 'src/comments/schema/comment.schema';
+//import { Comment } from 'src/comments/schema/comment.schema';
 
 export interface UserReference {
   _id: string;
@@ -64,8 +64,8 @@ export class Course {
   })
   ratedBy: UserReference[];
 
-  @Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Comment' }] })
-  comments: Comment[];
+  //@Prop({ type: [{ type: MongooseSchema.Types.ObjectId, ref: 'Comment' }] })
+  //comments: Comment[];
 
   @Prop({ default: Date.now })
   createdAt: Date;

@@ -6,6 +6,7 @@ import { CreateCourseDto } from './dto/create-course.dto';
 import { UnitService } from '../unit/unit.service';
 import { UpdateCourseDto } from './dto/update-course.dto';
 import { UsersService } from 'src/users/users.service';
+import { Neo4jCourseService } from './neo4j-course-service';
 
 interface UserReference {
   _id: string;
@@ -19,11 +20,17 @@ export class CourseService {
     @InjectModel(Course.name) private courseModel: Model<CourseDocument>,
     private readonly unitService: UnitService,
     private readonly userService: UsersService,
+    private readonly neo4jCourseService: Neo4jCourseService,
   ) {}
 
   async create(createCourseDto: CreateCourseDto): Promise<Course> {
     const newCourse = new this.courseModel(createCourseDto);
-    return newCourse.save();
+    const savedCourse = await newCourse.save();
+
+    // Crear nodo en Neo4j
+    await this.neo4jCourseService.createCourseNode(savedCourse);
+
+    return savedCourse;
   }
 
   async findAll(): Promise<Course[]> {
@@ -67,7 +74,6 @@ export class CourseService {
   }
 
   async remove(id: string): Promise<Course> {
-    // Primero obtenemos el curso para tener la información de estudiantes e instructor
     const course = await this.findOneById(id);
     if (!course) {
       throw new NotFoundException(`Curso con id ${id} no encontrado.`);
@@ -79,11 +85,14 @@ export class CourseService {
         await this.userService.removeCourseFromUser(student._id.toString(), id);
       }
     }
-    
+
     // Eliminar la referencia del curso en el instructor (Redis)
     if (course.instructor) {
       await this.userService.removeInstructorCourse(course.instructor._id.toString(), id);
     }
+
+    // Eliminar el nodo y sus relaciones en Neo4j
+    await this.neo4jCourseService.deleteCourseNode(id);
 
     const deletedCourse = await this.courseModel.findByIdAndDelete(id).exec();
     return deletedCourse;
