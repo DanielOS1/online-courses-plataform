@@ -1,4 +1,3 @@
-// src/rating/rating.service.ts
 import { Injectable, Inject, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Driver, Session } from 'neo4j-driver';
 import { RatingResponse, CourseRatingStats } from './interfaces/rating.interface';
@@ -248,7 +247,7 @@ export class RatingService {
       return {
         averageRating: record.get('avgRating'),
         totalRatings: record.get('totalRatings').toNumber(),
-        ratings: record.get('ratingsList').map(r => r.toNumber()),
+        ratings: record.get('ratingsList'),
         ratedBy: record.get('usersList')
       };
     } finally {

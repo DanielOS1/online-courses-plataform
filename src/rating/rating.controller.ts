@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Param, Delete, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Delete, HttpCode, HttpStatus, ParseFloatPipe } from '@nestjs/common';
 import { RatingService } from './rating.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { RatingResponse, CourseRatingStats } from './interfaces/rating.interface';
@@ -67,7 +67,7 @@ export class RatingController {
   async create(
     @Param('courseId') courseId: string,
     @Param('userId') userId: string,
-    @Param('rating') rating: number,
+    @Param('rating', ParseFloatPipe) rating: number,
   ): Promise<RatingResponse> {
     return this.ratingService.create(courseId, userId, rating);
   }
@@ -108,7 +108,7 @@ export class RatingController {
   async update(
     @Param('courseId') courseId: string,
     @Param('userId') userId: string,
-    @Param('rating') rating: number,
+    @Param('rating', ParseFloatPipe) rating: number,
   ): Promise<RatingResponse> {
     return this.ratingService.update(courseId, userId, rating);
   }
