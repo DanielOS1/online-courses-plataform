@@ -59,7 +59,10 @@ export class Neo4jUserService {
     const session = this.getSession();
     try {
       await session.executeWrite(async (tx) => {
-        // Primero eliminamos todas las relaciones del usuario
+        // Primero eliminamos todos los comentarios del usuario
+        await this.deleteUserComments(userId);
+
+        // Después eliminamos todas las relaciones del usuario
         await tx.run(
           `
           MATCH (u:User {_id: $userId})
@@ -82,107 +85,21 @@ export class Neo4jUserService {
       await session.close();
     }
   }
-/*
-  async getUserComments(userId: string): Promise<any[]> {
+
+  async deleteUserComments(userId: string): Promise<void> {
     const session = this.getSession();
     try {
-      const result = await session.executeRead(async (tx) => {
-        const response = await tx.run(
+      await session.executeWrite(async (tx) => {
+        await tx.run(
           `
-          MATCH (u:User {_id: $userId})-[:COMMENTS]->(c:Comment)-[:BELONGS_TO]->(course:Course)
-          RETURN c, course
+          MATCH (u:User {_id: $userId})-[:COMMENTS]->(c:Comment)
+          DETACH DELETE c
           `,
           { userId }
         );
-        return response.records.map(record => ({
-          comment: record.get('c').properties,
-          course: record.get('course').properties
-        }));
-      });
-      return result;
-    } finally {
-      await session.close();
-    }
-  }
-
-  async getUserRatings(userId: string): Promise<any[]> {
-    const session = this.getSession();
-    try {
-      const result = await session.executeRead(async (tx) => {
-        const response = await tx.run(
-          `
-          MATCH (u:User {_id: $userId})-[r:RATED]->(c:Course)
-          RETURN c.name as courseName, r.rating as rating, r.createdAt as createdAt
-          `,
-          { userId }
-        );
-        return response.records.map(record => ({
-          courseName: record.get('courseName'),
-          rating: record.get('rating').toNumber(),
-          createdAt: record.get('createdAt')
-        }));
-      });
-      return result;
-    } finally {
-      await session.close();
-    }
-  }
-
-  async addCommentLike(userId: string, commentId: string): Promise<void> {
-    const session = this.getSession();
-    try {
-      await session.executeWrite(async (tx) => {
-        // Verificar si ya existe un LIKE o DISLIKE
-        await tx.run(
-          `
-          MATCH (u:User {_id: $userId}), (c:Comment {_id: $commentId})
-          OPTIONAL MATCH (u)-[r:LIKES|DISLIKES]->(c)
-          DELETE r
-          CREATE (u)-[:LIKES]->(c)
-          `,
-          { userId, commentId }
-        );
       });
     } finally {
       await session.close();
     }
   }
-
-  async addCommentDislike(userId: string, commentId: string): Promise<void> {
-    const session = this.getSession();
-    try {
-      await session.executeWrite(async (tx) => {
-        // Verificar si ya existe un LIKE o DISLIKE
-        await tx.run(
-          `
-          MATCH (u:User {_id: $userId}), (c:Comment {_id: $commentId})
-          OPTIONAL MATCH (u)-[r:LIKES|DISLIKES]->(c)
-          DELETE r
-          CREATE (u)-[:DISLIKES]->(c)
-          `,
-          { userId, commentId }
-        );
-      });
-    } finally {
-      await session.close();
-    }
-  }
-
-  async removeCommentReaction(userId: string, commentId: string): Promise<void> {
-    const session = this.getSession();
-    try {
-      await session.executeWrite(async (tx) => {
-        await tx.run(
-          `
-          MATCH (u:User {_id: $userId})-[r:LIKES|DISLIKES]->(c:Comment {_id: $commentId})
-          DELETE r
-          `,
-          { userId, commentId }
-        );
-      });
-    } finally {
-      await session.close();
-    }
-  }
-*/
 }
